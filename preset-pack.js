@@ -2,6 +2,7 @@
 
 const presetPackFilename = "background-presets.zip";
 const presetPackFormat = "ba-avatar-background-presets";
+const captionFontFilename = "方正兰亭圆简体 中粗.TTF";
 
 async function createPresetPack(entries, name) {
   const zip = new JSZip();
@@ -22,12 +23,17 @@ async function readAssetIndex() {
   const response = await fetch("assets-index.json", { cache: "no-cache" });
   if (response.status === 404) return { guides: [], packs: [] };
   if (!response.ok) throw new Error("无法读取项目素材目录");
-  const { guides, packs } = await response.json();
+  const { guides, packs, legacyPack, font } = await response.json();
   const valid = (entries, folder) => (Array.isArray(entries) ? entries : []).filter((entry) =>
     typeof entry?.path === "string" && entry.path.startsWith(`${folder}/`) &&
     !entry.path.includes("\\") && entry.path.split("/").every((part) => part && part !== "." && part !== "..") &&
     typeof entry.revision === "string");
-  return { guides: valid(guides, "reference-images"), packs: valid(packs, "background-packs") };
+  const rootAsset = (entry, path) =>
+    entry?.path === path && typeof entry.revision === "string" ? entry : undefined;
+  return {
+    guides: valid(guides, "reference-images"), packs: valid(packs, "background-packs"),
+    legacyPack: rootAsset(legacyPack, presetPackFilename), font: rootAsset(font, captionFontFilename),
+  };
 }
 
 function projectAssetUrl({ path, revision }) {
@@ -37,7 +43,24 @@ function projectAssetUrl({ path, revision }) {
 }
 
 async function fetchProjectAsset(entry) {
-  return fetch(projectAssetUrl(entry), { cache: entry.revision ? "force-cache" : "no-cache" });
+  const url = projectAssetUrl(entry);
+  if (!entry.revision) return fetch(url, { cache: "no-cache" });
+  let cache;
+  try {
+    cache = await globalThis.caches?.open(`ba-avatar-assets:${new URL(".", document.baseURI).pathname}`);
+    const hit = await cache?.match(url.href);
+    if (hit) return hit;
+  } catch {
+    // Private browsing or storage limits can leave HTTP caching as the fallback.
+  }
+  const response = await fetch(url, { cache: "force-cache" });
+  if (cache && response.status === 200 && !response.headers.get("Content-Type")?.startsWith("text/html")) {
+    void cache.put(url.href, response.clone()).then(async () => {
+      const versions = await cache.keys(url.href, { ignoreSearch: true });
+      await Promise.all(versions.filter((request) => request.url !== url.href).map((request) => cache.delete(request)));
+    }).catch(() => {});
+  }
+  return response;
 }
 
 async function readPresetPack(blob, packageId, fallbackName) {

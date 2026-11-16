@@ -14,6 +14,8 @@ const stageHeight = stage.height;
 const kivoContext = byId("kivoImage").getContext("2d");
 const kivoName = byId("kivoName");
 const kivoCaption = byId("kivoCaption");
+let captionFontAsset = { path: captionFontFilename };
+let captionFontLoad;
 const previewTabs = [byId("editTab"), byId("kivoTab"), byId("libraryTab")];
 const kivoPanel = byId("kivoPanel");
 const libraryView = byId("libraryView");
@@ -33,6 +35,8 @@ const lock = byId("backgroundLock");
 const scaleInput = byId("scale");
 const scaleRange = byId("scaleRange");
 const scaleRangeBand = byId("scaleRangeBand");
+const switchScaleBand = byId("switchScaleBand");
+const scaleBands = new WeakMap();
 const blurInput = byId("blur");
 const showGuide = byId("showGuide");
 const chooseGuide = byId("chooseGuide");
@@ -386,6 +390,14 @@ function scheduleRender() {
   });
 }
 
+function loadCaptionFont() {
+  captionFontLoad ??= fetchProjectAsset(captionFontAsset).then(async (response) => {
+    if (!response.ok) throw new Error("无法读取姓名条字体");
+    const font = new FontFace("方正兰亭圆简体_中粗", await response.arrayBuffer(), { weight: "400" });
+    document.fonts.add(await font.load());
+  }).catch(() => { captionFontLoad = null; });
+}
+
 function switchPreview(tab) {
   activeTab = tab;
   for (const button of previewTabs) {
@@ -400,6 +412,7 @@ function switchPreview(tab) {
   byId("stageHint").hidden = inLibrary;
   libraryView.hidden = !inLibrary;
   download.hidden = inLibrary;
+  if (tab !== previewTabs[0]) loadCaptionFont();
   if (inLibrary) renderLibrary();
   scheduleRender();
   queueSave();
@@ -424,6 +437,12 @@ function canEdit(layer) {
   return Boolean(layer.image) && (layer !== background || (activeId !== solid.id && !layer.frozen && !lock.checked));
 }
 
+function scaleBandFor(layer) {
+  const percentage = Math.round(layer.scale * 1000) / 10;
+  const start = Math.min(700, Math.floor(percentage / 100) * 100);
+  return [Math.max(layer === background ? 100 : 5, start), start + 100];
+}
+
 function refreshControls(preserveScaleInput = false) {
   const editable = canEdit(selected);
   stage.dataset.editable = editable;
@@ -434,12 +453,19 @@ function refreshControls(preserveScaleInput = false) {
     scaleInput.value = percentage;
     scaleInputOrigin = null;
   }
-  const [min, max] = selected === background ? [100, 200] : [400, 500];
+  const band = scaleBands.get(selected) ?? scaleBandFor(selected);
+  scaleBands.set(selected, band);
+  const [min, max] = band;
   scaleRange.min = min;
   scaleRange.max = max;
   scaleRange.value = clamp(Number(percentage), min, max);
   const outside = selected.image && (Number(percentage) < min || Number(percentage) > max);
   scaleRangeBand.textContent = `${min}%–${max}%${outside ? "（超出范围）" : ""}`;
+  switchScaleBand.hidden = !editable || !outside;
+  if (!switchScaleBand.hidden) {
+    const [nextMin, nextMax] = scaleBandFor(selected);
+    switchScaleBand.textContent = `切换到 ${nextMin}%–${nextMax}% 档`;
+  }
   byId("x").value = selected.image ? Math.round(selected.x) : "";
   byId("y").value = selected.image ? Math.round(selected.y) : "";
   lock.disabled = Boolean(background.frozen);
@@ -496,6 +522,7 @@ function replaceImage(layer, image) {
 function setBackground(image, preset) {
   finishZoom();
   activeId = preset.id;
+  scaleBands.delete(background);
   replaceImage(background, image);
   background.frozen = Boolean(preset.frozen);
   const params = preset.frozen ? frozenParameters : preset.working ?? builtInWork[preset.id] ?? preset;
@@ -654,6 +681,7 @@ onFile("characterFile", async (file) => {
     if (request !== characterRequest) return image.close();
     finishZoom();
     replaceImage(character, image);
+    scaleBands.delete(character);
     transformHistory = transformHistory.filter((step) => step.backgroundId !== null);
     character.name = file.name;
     byId("characterName").textContent = file.name;
@@ -692,8 +720,17 @@ function renderGuideChoices() {
       const unhostedUrl = record.path ? null : URL.createObjectURL(record.blob);
       if (unhostedUrl) guidePreviewUrls.push(unhostedUrl);
       const image = Object.assign(document.createElement("img"), {
-        alt: "", loading: "lazy", src: unhostedUrl ?? projectAssetUrl(record),
+        alt: "", loading: "lazy",
       });
+      if (unhostedUrl) image.src = unhostedUrl;
+      else {
+        void fetchProjectAsset(record).then((response) => response.ok ? response.blob() : null).then((blob) => {
+          if (!blob || !image.isConnected) return;
+          const url = URL.createObjectURL(blob);
+          guidePreviewUrls.push(url);
+          image.src = url;
+        }).catch(() => {});
+      }
       const button = Object.assign(document.createElement("button"), { type: "button", className: "guide-option" });
       button.setAttribute("aria-pressed", record.id === guideId);
       button.append(image, guideName(record));
@@ -899,6 +936,13 @@ scaleInput.addEventListener("input", () => applyScaleInput(true));
 scaleInput.addEventListener("change", () => applyScaleInput(false));
 scaleInput.addEventListener("blur", () => {
   if (scaleInputOrigin) applyScaleInput(false);
+});
+switchScaleBand.addEventListener("click", () => {
+  if (switchScaleBand.hidden || !canEdit(selected)) return;
+  finishZoom();
+  scaleBands.set(selected, scaleBandFor(selected));
+  refreshControls();
+  scaleRange.focus();
 });
 scaleRange.addEventListener("input", () => {
   if (!drag && canEdit(selected)) applyZoom("slider", scaleRange.valueAsNumber / 100, selected.x, selected.y);
@@ -1523,12 +1567,12 @@ async function loadProjectGuides(entries) {
   return skipped;
 }
 
-async function loadBackgroundPacks(files, records) {
+async function loadBackgroundPacks(files, records, legacyPack) {
   let skipped = 0;
   const sources = [
     ...records.filter((record) => record.id.startsWith("local-pack:") && record.blob)
       .sort((a, b) => (a.addedAt ?? a.blob.lastModified ?? 0) - (b.addedAt ?? b.blob.lastModified ?? 0)),
-    { id: "project:legacy", path: presetPackFilename, name: "项目预设" },
+    { path: presetPackFilename, ...legacyPack, id: "project:legacy", name: "项目预设" },
     ...files.map((file) => ({
       ...file, id: `project-pack:${file.path}`, name: fileStem(file.path.split("/").at(-1)).slice(0, 60),
     })),
@@ -1587,10 +1631,11 @@ async function restoreWorkspace() {
   }
   const wantedGuideId = workspace?.guideId || (guides.has("guide") && workspace?.guideId === undefined ? "guide" : simpleGuideId);
   const index = await projectIndex;
+  if (index?.font) captionFontAsset = index.font;
   const [roleImage, skippedGuides, skippedPacks] = await Promise.all([
     loadImage("role-image"),
     loadProjectGuides(index?.guides ?? []),
-    loadBackgroundPacks(index?.packs ?? [], assets),
+    loadBackgroundPacks(index?.packs ?? [], assets, index?.legacyPack),
   ]);
   let restoredGuideId = guides.has(wantedGuideId) ? wantedGuideId : simpleGuideId;
   let guideImage = await decodeGuide(guides.get(restoredGuideId)).catch(() => null);

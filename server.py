@@ -10,6 +10,25 @@ ROOT = Path(__file__).resolve().parent
 INDEX = "assets-index.json"
 
 
+def asset_entry(file):
+    stat = file.stat()
+    return {
+        "path": file.relative_to(ROOT).as_posix(),
+        "revision": f"{stat.st_mtime_ns}-{stat.st_size}",
+        "addedAt": round(getattr(stat, "st_birthtime", stat.st_mtime) * 1000),
+    }
+
+
+def root_asset(name):
+    file = ROOT / name
+    try:
+        if file.is_file() and not file.is_symlink():
+            return asset_entry(file)
+    except OSError:
+        pass
+    return None
+
+
 def scan(folder, extensions):
     directory = ROOT / folder
     result = []
@@ -18,14 +37,9 @@ def scan(folder, extensions):
             if (file.suffix.lower() not in extensions or not file.is_file()
                     or file.is_symlink() or not file.resolve().is_relative_to(directory)):
                 continue
-            stat = file.stat()
+            result.append(asset_entry(file))
         except OSError:
             continue
-        result.append({
-            "path": file.relative_to(ROOT).as_posix(),
-            "revision": f"{stat.st_mtime_ns}-{stat.st_size}",
-            "addedAt": round(getattr(stat, "st_birthtime", stat.st_mtime) * 1000),
-        })
     return result
 
 
@@ -33,6 +47,8 @@ def asset_index():
     return json.dumps({
         "guides": scan("reference-images", {".png", ".jpg", ".jpeg", ".webp", ".avif", ".gif", ".bmp"}),
         "packs": scan("background-packs", {".zip"}),
+        "legacyPack": root_asset("background-presets.zip"),
+        "font": root_asset("方正兰亭圆简体 中粗.TTF"),
     }, ensure_ascii=False).encode("utf-8")
 
 

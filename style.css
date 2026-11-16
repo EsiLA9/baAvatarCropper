@@ -1,11 +1,3 @@
-@font-face {
-  font-family: "方正兰亭圆简体_中粗";
-  src: url("./方正兰亭圆简体 中粗.TTF") format("truetype");
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
 :root {
   color-scheme: light;
   font-family: Inter, "Microsoft YaHei UI", system-ui, sans-serif;
