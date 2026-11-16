@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>蔚蓝档案头像裁剪</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="vendor/jszip.min.js"></script>
+  <script defer src="preset-pack.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>蔚蓝档案 <span>头像裁剪</span></h1>
+    <span class="dimensions">404 × 456 px</span>
+  </header>
+  <main>
+    <aside class="panel assets" aria-label="素材">
+      <section>
+        <h2>背景素材</h2>
+        <label for="preset">当前背景</label>
+        <select id="preset"></select>
+        <label class="file-label" for="backgroundFile">导入背景图（可多选）</label>
+        <input id="backgroundFile" type="file" accept="image/*" multiple>
+        <button id="copyToLocal" type="button" hidden>另存到本地</button>
+        <button id="freezeBackground" type="button" title="将位置和模糊写入一张新的背景图" hidden>固化另存</button>
+        <p id="backgroundState" class="hint"></p>
+      </section>
+      <section>
+        <h2>角色素材</h2>
+        <label class="file-label" for="characterFile">导入或更换角色图</label>
+        <input id="characterFile" type="file" accept="image/*">
+        <p id="characterName" class="hint">使用带透明背景的角色图片</p>
+      </section>
+      <section>
+        <h2>对齐参考</h2>
+        <button id="chooseGuide" type="button" aria-haspopup="dialog">选择参考图</button>
+        <p id="currentGuide" class="hint"></p>
+        <label class="file-label" for="guideFile">导入参考图（可多选）</label>
+        <input id="guideFile" type="file" accept="image/*" multiple aria-describedby="guideHint">
+        <p id="guideHint" class="hint">参考图必须为 404 × 456 px</p>
+        <button id="removeGuide" type="button" disabled>移除当前参考图</button>
+      </section>
+    </aside>
+
+    <section class="studio" aria-labelledby="studioTitle">
+      <div class="studio-head">
+        <h2 id="studioTitle">预览</h2>
+        <div class="switchTabs" role="tablist" aria-label="预览模式">
+          <button id="editTab" type="button" role="tab" aria-controls="stageView" aria-selected="true">构图</button>
+          <button id="kivoTab" type="button" role="tab" aria-controls="stageView" aria-selected="false" tabindex="-1">Kivo 卡片</button>
+          <button id="libraryTab" type="button" role="tab" aria-controls="libraryView" aria-selected="false" tabindex="-1">既有背景</button>
+        </div>
+        <span id="stageHint" class="hint">拖拽移动 · 滚轮缩放</span>
+      </div>
+      <div class="canvas-well">
+        <div id="stageView" class="stage-viewport" role="tabpanel" aria-labelledby="editTab">
+          <canvas id="stage" width="720" height="620" aria-label="头像构图预览"></canvas>
+          <figure id="kivoPanel" class="kivo-card" hidden>
+            <canvas id="kivoImage" width="342" height="456" aria-label="头像在 Kivo 画廊中的裁切效果"></canvas>
+            <figcaption id="kivoCaption">角色名称</figcaption>
+          </figure>
+        </div>
+      </div>
+      <section id="libraryView" role="tabpanel" aria-labelledby="libraryTab" hidden>
+        <div class="library-head library-toolbar">
+          <label for="packFiles">载入背景包</label>
+          <input id="packFiles" type="file" accept=".zip,application/zip" multiple>
+          <button id="restoreProjectPacks" type="button" hidden>恢复已隐藏项目包</button>
+          <label class="check"><input id="selectAllBackgrounds" type="checkbox" disabled> 全选背景</label>
+          <button id="exportBackgrounds" type="button" disabled>导出所选 ZIP</button>
+        </div>
+        <section class="library-group" aria-labelledby="localBackgroundTitle">
+          <div class="library-head">
+            <h2 id="localBackgroundTitle">本地数据</h2>
+            <div class="library-pack-actions">
+              <button id="collapseLocalBackgrounds" type="button" aria-controls="backgroundLibrary" aria-expanded="true">折叠</button>
+              <label class="check"><input id="selectLocalBackgrounds" type="checkbox" disabled> 全选本地</label>
+            </div>
+          </div>
+          <p id="libraryHint" class="hint"></p>
+          <div id="backgroundLibrary" class="library-grid"></div>
+        </section>
+        <div id="packSorting" class="pack-sorting" hidden>
+          <label for="packSort">包排序</label>
+          <select id="packSort">
+            <option value="default">默认</option>
+            <option value="name">名称</option>
+            <option value="date">加入日期</option>
+          </select>
+          <select id="packDirection" aria-label="包排序方向">
+            <option value="forward">正序</option>
+            <option value="reverse">倒序</option>
+          </select>
+        </div>
+        <div id="packLibrary"></div>
+      </section>
+      <div class="studio-foot">
+        <div>
+          <p id="status" class="hint" role="status"></p>
+          <p id="storageStatus" class="hint" role="status"></p>
+        </div>
+        <button id="download" class="primary" type="button" disabled>下载 PNG</button>
+      </div>
+    </section>
+
+    <aside class="panel settings" aria-label="构图参数">
+      <section>
+        <h2>图层调整</h2>
+        <fieldset class="layers">
+          <legend class="sr-only">当前编辑图层</legend>
+          <label><input type="radio" name="layer" value="background" checked>背景</label>
+          <label><input type="radio" name="layer" value="character">角色</label>
+        </fieldset>
+        <label class="check"><input id="backgroundLock" type="checkbox"> 锁定背景</label>
+        <fieldset id="transform">
+          <legend class="sr-only">缩放和位置</legend>
+          <label class="param" for="scale">缩放 % <input id="scale" type="number" min="5" max="800" step="0.1"></label>
+          <label class="range-label" for="scaleRange">快速缩放 <span id="scaleRangeBand" class="hint">100%–200%</span></label>
+          <input id="scaleRange" type="range" min="100" max="200" step="0.1" aria-describedby="scaleRangeBand">
+          <div class="position">
+            <label for="x">X 位置 <input id="x" type="number" step="1"></label>
+            <label for="y">Y 位置 <input id="y" type="number" step="1"></label>
+          </div>
+          <button id="resetTransform" type="button">重置位置和缩放</button>
+        </fieldset>
+      </section>
+      <section>
+        <h2>高斯模糊</h2>
+        <label class="range-label" for="blur">背景模糊 <output id="blurValue" for="blur"></output></label>
+        <input id="blur" type="range" min="0" max="40" step="1">
+      </section>
+      <section>
+        <h2>对齐参考</h2>
+        <label class="check"><input id="showGuide" type="checkbox" checked> 显示参考层</label>
+        <label class="range-label" for="opacity">参考层透明度 <output id="opacityValue" for="opacity"></output></label>
+        <input id="opacity" type="range" min="10" max="100" value="60">
+      </section>
+      <section>
+        <label for="kivoName">Kivo 预览姓名</label>
+        <input id="kivoName" maxlength="60" placeholder="角色名称">
+      </section>
+    </aside>
+  </main>
+  <dialog id="guideDialog" aria-labelledby="guideDialogTitle">
+    <div class="guide-dialog-head">
+      <h2 id="guideDialogTitle">选择参考图</h2>
+      <form method="dialog"><button>关闭</button></form>
+    </div>
+    <p id="guideDialogStatus" class="hint" role="status"></p>
+    <div id="guideChoices"></div>
+  </dialog>
+  <dialog id="exportBackgroundDialog" aria-labelledby="exportBackgroundTitle" aria-describedby="exportBackgroundHint">
+    <form method="dialog">
+      <h2 id="exportBackgroundTitle">导出所选背景 ZIP</h2>
+      <label for="exportPackName">包名称</label>
+      <input id="exportPackName" maxlength="60" placeholder="background-presets">
+      <p id="exportBackgroundHint" class="hint">烘焙会把当前取景和模糊写入包内的图片，并锁定背景参数。</p>
+      <div class="dialog-actions">
+        <button value="cancel">取消</button>
+        <button value="editable" autofocus>保留可编辑参数</button>
+        <button value="bake">烘焙后导出</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>
