@@ -455,6 +455,7 @@ function refreshControls(preserveScaleInput = false) {
 }
 
 function selectLayer(layer) {
+  finishZoom();
   selected = layer;
   document.querySelector(`[name=layer][value=${layer === background ? "background" : "character"}]`).checked = true;
   refreshControls();
@@ -493,6 +494,7 @@ function replaceImage(layer, image) {
 }
 
 function setBackground(image, preset) {
+  finishZoom();
   activeId = preset.id;
   replaceImage(background, image);
   background.frozen = Boolean(preset.frozen);
@@ -589,6 +591,9 @@ function onFile(id, handle) {
   });
 }
 
+byId("quickBackgroundUpload").addEventListener("click", () => byId("backgroundFile").click());
+byId("quickCharacterUpload").addEventListener("click", () => byId("characterFile").click());
+
 function registerBackgroundAsset(blob) {
   const id = `image:${crypto.randomUUID()}`;
   images.set(id, blob);
@@ -647,7 +652,9 @@ onFile("characterFile", async (file) => {
   try {
     const image = await decode(file);
     if (request !== characterRequest) return image.close();
+    finishZoom();
     replaceImage(character, image);
+    transformHistory = transformHistory.filter((step) => step.backgroundId !== null);
     character.name = file.name;
     byId("characterName").textContent = file.name;
     queueRecord({ id: "role-image", blob: file });
@@ -883,6 +890,7 @@ function applyScaleInput(live) {
     return;
   }
   // Reuse the original position when an intermediate value temporarily narrows the allowed offset.
+  finishZoom();
   scaleInputOrigin ??= { x: selected.x, y: selected.y };
   setTransform(selected, value / 100, scaleInputOrigin.x, scaleInputOrigin.y, live);
 }
@@ -893,7 +901,23 @@ scaleInput.addEventListener("blur", () => {
   if (scaleInputOrigin) applyScaleInput(false);
 });
 scaleRange.addEventListener("input", () => {
-  if (canEdit(selected)) setTransform(selected, scaleRange.valueAsNumber / 100, selected.x, selected.y);
+  if (!drag && canEdit(selected)) applyZoom("slider", scaleRange.valueAsNumber / 100, selected.x, selected.y);
+});
+scaleRange.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0 || drag || sliderPointerId !== null) return;
+  finishZoom();
+  sliderPointerId = event.pointerId;
+});
+for (const type of ["pointerup", "pointercancel"]) {
+  document.addEventListener(type, (event) => {
+    if (event.pointerId !== sliderPointerId) return;
+    sliderPointerId = null;
+    finishZoom();
+  });
+}
+window.addEventListener("blur", () => {
+  sliderPointerId = null;
+  finishZoom();
 });
 
 for (const id of ["x", "y"]) {
@@ -903,11 +927,13 @@ for (const id of ["x", "y"]) {
       refreshControls();
       return;
     }
+    finishZoom();
     setTransform(selected, selected.scale,
       id === "x" ? value : selected.x, id === "y" ? value : selected.y);
   });
 }
 byId("resetTransform").addEventListener("click", () => {
+  finishZoom();
   if (canEdit(selected)) setTransform(selected, 1, 0, 0);
 });
 blurInput.addEventListener("input", () => {
@@ -935,10 +961,43 @@ function pointerPosition(event) {
 }
 
 let drag = null;
+let transformHistory = [];
+let zoom = null;
+let zoomTimer;
+let sliderPointerId = null;
+
+function finishZoom() {
+  clearTimeout(zoomTimer);
+  const previous = zoom;
+  zoom = null;
+  if (!previous) return;
+  const { layer, image, backgroundId, scale, x, y } = previous;
+  if (layer.image === image && (backgroundId === null || backgroundId === activeId) &&
+      (layer.scale !== scale || layer.x !== x || layer.y !== y)) {
+    transformHistory.push({ backgroundId, scale, x, y });
+  }
+}
+
+function applyZoom(source, scale, x, y) {
+  if (zoom?.source !== source) {
+    finishZoom();
+    zoom = { source, layer: selected, image: selected.image,
+      backgroundId: selected === background ? activeId : null, ...transformOf(selected) };
+  }
+  setTransform(selected, scale, x, y);
+  if (sliderPointerId === null) {
+    clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(finishZoom, 400);
+  }
+}
+
 stage.addEventListener("pointerdown", (event) => {
-  if (drag || event.button !== 0 || !canEdit(selected)) return;
+  if (drag || sliderPointerId !== null || event.button !== 0 || !canEdit(selected)) return;
+  finishZoom();
   const start = pointerPosition(event);
   drag = { id: event.pointerId, layer: selected, image: selected.image,
+    backgroundId: selected === background ? activeId : null,
+    x: selected.x, y: selected.y,
     offsetX: selected.x - start.x, offsetY: selected.y - start.y };
   stage.setPointerCapture(event.pointerId);
   stage.dataset.dragging = true;
@@ -950,17 +1009,37 @@ stage.addEventListener("pointermove", (event) => {
 });
 stage.addEventListener("lostpointercapture", (event) => {
   if (drag?.id !== event.pointerId) return;
+  if (drag.image === drag.layer.image && (drag.backgroundId === null || drag.backgroundId === activeId) &&
+      (drag.layer.x !== drag.x || drag.layer.y !== drag.y)) {
+    transformHistory.push({ backgroundId: drag.backgroundId, x: drag.x, y: drag.y });
+  }
   drag = null;
   delete stage.dataset.dragging;
 });
+
+document.addEventListener("keydown", (event) => {
+  if (event.defaultPrevented || !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey ||
+      event.key.toLowerCase() !== "z" || drag || sliderPointerId !== null || activeTab === previewTabs[2] ||
+      event.target.isContentEditable ||
+      (event.target !== scaleRange && event.target.closest?.("input, textarea, select, dialog"))) return;
+  finishZoom();
+  const index = transformHistory.findLastIndex((step) => step.backgroundId === null || step.backgroundId === activeId);
+  if (index < 0) return;
+  const previous = transformHistory[index];
+  const layer = previous.backgroundId === null ? character : background;
+  if (!canEdit(layer)) return;
+  transformHistory.splice(index, 1);
+  event.preventDefault();
+  setTransform(layer, previous.scale ?? layer.scale, previous.x, previous.y);
+});
 stage.addEventListener("wheel", (event) => {
-  if (!canEdit(selected) || event.deltaY === 0 || event.ctrlKey || event.metaKey) return;
+  if (drag || sliderPointerId !== null || !canEdit(selected) || event.deltaY === 0 || event.ctrlKey || event.metaKey) return;
   event.preventDefault();
   const point = pointerPosition(event);
   const scale = clamp(selected.scale * (event.deltaY < 0 ? 1.08 : 1 / 1.08),
     selected === background ? 1 : 0.05, 8);
   const ratio = scale / selected.scale;
-  setTransform(selected, scale, point.x + (selected.x - point.x) * ratio,
+  applyZoom("wheel", scale, point.x + (selected.x - point.x) * ratio,
     point.y + (selected.y - point.y) * ratio);
 }, { passive: false });
 

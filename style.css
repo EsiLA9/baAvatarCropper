@@ -1,8 +1,9 @@
 @font-face {
   font-family: "方正兰亭圆简体_中粗";
-  src: local("FZLANTY_ZHONGCUJW--GB1-0"), local("FZLanTingYuanS-DB1-GB"), local("方正兰亭圆简体_中粗");
+  src: url("./方正兰亭圆简体 中粗.TTF") format("truetype");
   font-style: normal;
   font-weight: 400;
+  font-display: swap;
 }
 
 :root {
@@ -13,10 +14,14 @@
   --line: #d5dfed;
   --muted: #536781;
   --blue: #155cb4;
+  --upload-yellow: #ffda67;
+  --upload-hover: #f9c746;
+  --upload-ink: #543b0e;
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; }
+body { margin: 0; padding-bottom: calc(108px + env(safe-area-inset-bottom)); }
+.icon-defs { position: absolute; }
 .topbar {
   background: #fff;
   border-bottom: 1px solid var(--line);
@@ -80,6 +85,57 @@ input[type=file]::file-selector-button {
   border-radius: 5px;
   padding: 6px;
 }
+.upload-card {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid #f1df9f;
+  border-radius: 10px;
+  background: #fff7db;
+  color: var(--upload-ink);
+}
+.upload-card label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.upload-card input { color: var(--upload-ink); }
+.upload-card input::file-selector-button { background: var(--upload-yellow); color: var(--upload-ink); }
+.upload-card input::file-selector-button:hover { background: var(--upload-hover); }
+.upload-icon {
+  width: 19px;
+  height: 19px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.quick-uploads {
+  position: fixed;
+  right: calc(16px + env(safe-area-inset-right));
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 2;
+  display: flex;
+  gap: 10px;
+}
+.quick-uploads button {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 5px;
+  width: 84px;
+  height: 84px;
+  padding: 4px;
+  border: 1px solid #d99f28;
+  border-radius: 50%;
+  background: var(--upload-yellow);
+  color: var(--upload-ink);
+  box-shadow: 0 5px 15px #49330c2b;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.quick-uploads .upload-icon { width: 28px; height: 28px; }
+.quick-uploads button:hover:not(:disabled) { background: var(--upload-hover); border-color: #bc851f; }
 .hint { color: var(--muted); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
 .studio { overflow: hidden; }
 .studio-head, .studio-foot {
