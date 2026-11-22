@@ -3,6 +3,7 @@
 const presetPackFilename = "background-presets.zip";
 const presetPackFormat = "ba-avatar-background-presets";
 const captionFontFilename = "方正兰亭圆简体 中粗.TTF";
+const shapeMaskFilename = "shaped.png";
 
 async function createPresetPack(entries, name) {
   const zip = new JSZip();
@@ -23,7 +24,7 @@ async function readAssetIndex() {
   const response = await fetch("assets-index.json", { cache: "no-cache" });
   if (response.status === 404) return { guides: [], packs: [] };
   if (!response.ok) throw new Error("无法读取项目素材目录");
-  const { guides, packs, legacyPack, font } = await response.json();
+  const { guides, packs, legacyPack, font, shapeMask } = await response.json();
   const valid = (entries, folder) => (Array.isArray(entries) ? entries : []).filter((entry) =>
     typeof entry?.path === "string" && entry.path.startsWith(`${folder}/`) &&
     !entry.path.includes("\\") && entry.path.split("/").every((part) => part && part !== "." && part !== "..") &&
@@ -33,6 +34,7 @@ async function readAssetIndex() {
   return {
     guides: valid(guides, "reference-images"), packs: valid(packs, "background-packs"),
     legacyPack: rootAsset(legacyPack, presetPackFilename), font: rootAsset(font, captionFontFilename),
+    shapeMask: rootAsset(shapeMask, shapeMaskFilename),
   };
 }
 

@@ -49,6 +49,7 @@ def asset_index():
         "packs": scan("background-packs", {".zip"}),
         "legacyPack": root_asset("background-presets.zip"),
         "font": root_asset("方正兰亭圆简体 中粗.TTF"),
+        "shapeMask": root_asset("shaped.png"),
     }, ensure_ascii=False).encode("utf-8")
 
 

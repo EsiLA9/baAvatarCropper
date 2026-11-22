@@ -57,10 +57,14 @@ function canvas(w, h) {
 
 const composition = canvas(width, height);
 const compositeContext = composition.getContext("2d");
+const shapedComposition = canvas(width, height);
+const shapedContext = shapedComposition.getContext("2d");
 const blurred = canvas(width, height);
 const blurredContext = blurred.getContext("2d");
 const previewBackground = canvas(1, 1);
 const previewBackgroundContext = previewBackground.getContext("2d");
+const cropPreview = canvas(1, 1);
+const cropPreviewContext = cropPreview.getContext("2d");
 const padding = canvas(1, 1);
 const paddingContext = padding.getContext("2d");
 
@@ -78,6 +82,7 @@ const status = (message) => { byId("status").textContent = message; };
 const background = { image: null, blur: 12, scale: 1, x: 0, y: 0 };
 const character = { image: null, name: "", scale: 1, x: 0, y: 0 };
 let guide = null;
+let shapeMask = null;
 let selected = background;
 let backgroundRevision = 0;
 let renderedBackgroundRevision = -1;
@@ -315,6 +320,23 @@ function renderComposition() {
   drawLayer(compositeContext, character, 0, 0);
 }
 
+function applyShapeMask(context) {
+  if (!shapeMask) return;
+  context.save();
+  context.resetTransform();
+  context.imageSmoothingQuality = "high";
+  context.globalCompositeOperation = "destination-in";
+  context.drawImage(shapeMask, 0, 0, context.canvas.width, context.canvas.height);
+  context.restore();
+}
+
+function renderShapedComposition() {
+  renderComposition();
+  shapedContext.clearRect(0, 0, width, height);
+  shapedContext.drawImage(composition, 0, 0);
+  applyShapeMask(shapedContext);
+}
+
 function drawGuide(context, x, y, scale = 1) {
   if (!showGuide.checked || !guide) return;
   context.save();
@@ -353,14 +375,14 @@ function scheduleRender() {
     stageContext.fillStyle = "#182840a3";
     stageContext.fillRect(0, 0, stageWidth, stageHeight);
     if (!kivoPanel.hidden) {
-      renderComposition();
+      renderShapedComposition();
       const card = kivoContext.canvas;
       const bounds = kivoPanel.getBoundingClientRect();
       const pixelWidth = Math.max(1, Math.round(bounds.width * devicePixelRatio));
       const pixelHeight = Math.max(1, Math.round(bounds.height * devicePixelRatio));
       if (card.width !== pixelWidth) card.width = pixelWidth;
       if (card.height !== pixelHeight) card.height = pixelHeight;
-      drawCard(kivoContext, composition);
+      drawCard(kivoContext, shapedComposition);
       const scale = card.height / height;
       drawGuide(kivoContext, (card.width - width * scale) / 2, 0, scale);
       return;
@@ -374,19 +396,17 @@ function scheduleRender() {
       renderBackground(background, previewBackgroundContext);
       previewBackgroundRevision = backgroundRevision;
     }
-    stageContext.save();
-    stageContext.beginPath();
-    stageContext.rect(frameX, frameY, width, height);
-    stageContext.clip();
-    stageContext.clearRect(frameX, frameY, width, height);
+    if (cropPreview.width !== cropWidth) cropPreview.width = cropWidth;
+    if (cropPreview.height !== cropHeight) cropPreview.height = cropHeight;
+    cropPreviewContext.resetTransform();
+    cropPreviewContext.clearRect(0, 0, cropWidth, cropHeight);
+    cropPreviewContext.drawImage(previewBackground, 0, 0);
+    cropPreviewContext.setTransform(cropWidth / width, 0, 0, cropHeight / height, 0, 0);
+    drawLayer(cropPreviewContext, character, 0, 0);
+    drawGuide(cropPreviewContext, 0, 0);
+    applyShapeMask(cropPreviewContext);
     stageContext.imageSmoothingQuality = "high";
-    stageContext.drawImage(previewBackground, frameX, frameY, width, height);
-    drawLayer(stageContext, character, frameX, frameY);
-    drawGuide(stageContext, frameX, frameY);
-    stageContext.restore();
-    stageContext.strokeStyle = "#f1f8ff";
-    stageContext.lineWidth = 2;
-    stageContext.strokeRect(frameX - 1, frameY - 1, width + 2, height + 2);
+    stageContext.drawImage(cropPreview, frameX, frameY, width, height);
   });
 }
 
@@ -474,7 +494,7 @@ function refreshControls(preserveScaleInput = false) {
   byId("blurValue").value = `${background.blur} px`;
   byId("opacityValue").value = `${opacity.value}%`;
   opacity.disabled = !showGuide.checked;
-  download.disabled = !background.image || !character.image;
+  download.disabled = !shapeMask || !background.image || !character.image;
   byId("stageHint").textContent = editable ? "拖拽移动 · 滚轮缩放"
     : selected === character ? "导入角色图后可调整"
     : activeId === solid.id ? "上传背景图后可调整" : background.frozen ? "背景已固化" : "背景已锁定";
@@ -1097,10 +1117,10 @@ function downloadBlob(blob, filename) {
 }
 
 download.addEventListener("click", () => {
-  if (download.hidden) return;
-  renderComposition();
+  if (download.hidden || download.disabled) return;
+  renderShapedComposition();
   const name = character.name.replace(/\.[^.]+$/, "") || "头像";
-  composition.toBlob((blob) => {
+  shapedComposition.toBlob((blob) => {
     if (!blob) {
       status("生成 PNG 失败，请重试。");
       return;
@@ -1282,6 +1302,7 @@ async function paintThumbnail() {
         const context = entry.canvas.getContext("2d");
         renderBackground({ ...params, image, frozen: preset.frozen }, context);
         drawLayer(context, character, 0, 0);
+        applyShapeMask(context);
         entry.preview.title = "";
       }
     } catch {
@@ -1632,11 +1653,20 @@ async function restoreWorkspace() {
   const wantedGuideId = workspace?.guideId || (guides.has("guide") && workspace?.guideId === undefined ? "guide" : simpleGuideId);
   const index = await projectIndex;
   if (index?.font) captionFontAsset = index.font;
-  const [roleImage, skippedGuides, skippedPacks] = await Promise.all([
+  const [roleImage, skippedGuides, skippedPacks, mask] = await Promise.all([
     loadImage("role-image"),
     loadProjectGuides(index?.guides ?? []),
     loadBackgroundPacks(index?.packs ?? [], assets, index?.legacyPack),
+    fetchProjectAsset(index?.shapeMask ?? { path: shapeMaskFilename }).then(async (response) => {
+      if (!response.ok) return null;
+      const image = await decode(await response.blob());
+      if (image.width === width && image.height === height) return image;
+      image.close();
+      return null;
+    }).catch(() => null),
   ]);
+  shapeMask = mask;
+  byId("shapeStatus").hidden = Boolean(shapeMask);
   let restoredGuideId = guides.has(wantedGuideId) ? wantedGuideId : simpleGuideId;
   let guideImage = await decodeGuide(guides.get(restoredGuideId)).catch(() => null);
   if (!guideImage && restoredGuideId !== simpleGuideId) {

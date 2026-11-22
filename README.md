@@ -16,6 +16,7 @@ python server.py
 - 导入带透明背景的角色图，初始缩放 370%、居中。角色缩放 100% 时整张图完整显示在窗口内。通过图层切换选择要编辑的图片，拖拽移动，滚轮缩放。在构图或 Kivo 卡片中按 `Ctrl+Z` 可逐次撤回当前画布上的背景或角色拖拽。触屏可拖拽，并通过缩放数值框调整大小。
 - 快速缩放滑条按当前倍率选档。使用滚轮或数值框超出当前档位后，可点击提示切换到包含当前倍率的档位。连续滚轮缩放或快速滑条调整可用 `Ctrl+Z` 整步撤回。
 - 可以多选导入 404 × 456 px 的参考图，通过左侧「选择参考图」弹窗查看缩略图并切换，也可移除当前本地参考图。`reference-images/` 提供项目参考图，其中 `简单参考线.png` 用作默认参考。PNG 成片尺寸固定为 404 × 456，参考层仅在预览中可见。
+- 头像成片和预览使用 `shaped.png` 的 Alpha 通道裁出剪角与圆角，保留透明边缘。Kivo 卡片仍按 3:4 居中裁切，完整轮廓可在「构图」中查看。
 - 在中央预览顶部切换「构图」「Kivo 卡片」和「既有背景」。构图与 Kivo 模式共用参考层，两种模式都可以拖拽和缩放。Kivo 窗口以 3:4 比例居中裁切，姓名由用户填写并保持到下次使用。姓名条从项目加载 `方正兰亭圆简体 中粗.TTF`。
 - 「既有背景」按本地数据和各背景包分组。点击卡片图片进入编辑，双击本地背景名称改名。可批量载入 ZIP，为包命名、折叠包、移除本地包或隐藏项目包。包按默认顺序、名称或加入日期排序，均可切换正序和倒序。隐藏的项目包可从图库工具栏恢复。
 - 点击「另存到本地」可将当前内置示例或项目预设复制到本地。点击「固化另存」会新建一份 **444 × 496 px** 的背景 PNG，保留裁剪窗四边各 20 px，写入当前构图和高斯模糊。固化版锁定位置、缩放和模糊，原背景可继续调整。头像可在构图和 Kivo 模式下导出为 **404 × 456 px** PNG。
@@ -33,8 +34,8 @@ ZIP 功能使用随页面提供的 JSZip 3.10.1。应用运行时无需访问 CD
 
 ## GitHub Pages 发布
 
-1. 将本项目目录的内容复制到独立的 GitHub 仓库根目录。保留 `index.html`、`style.css`、`app.js`、`preset-pack.js`、`方正兰亭圆简体 中粗.TTF`，以及 `vendor/`、`reference-images/`、`background-packs/`、`assets-index.json` 和 `.nojekyll`。要继续提供旧版项目包时，一并保留根目录的 `background-presets.zip`。
-2. 每次增删或替换项目参考图、背景包或字体后，在本地执行 `python server.py --index-only`，把更新后的 `assets-index.json` 和素材一起提交。Python 用于本地预览和生成索引。
+1. 将本项目目录的内容复制到独立的 GitHub 仓库根目录。保留 `index.html`、`style.css`、`app.js`、`preset-pack.js`、`shaped.png`、`方正兰亭圆简体 中粗.TTF`，以及 `vendor/`、`reference-images/`、`background-packs/`、`assets-index.json` 和 `.nojekyll`。要继续提供旧版项目包时，一并保留根目录的 `background-presets.zip`。
+2. 每次增删或替换项目参考图、背景包、头像蒙版或字体后，在本地执行 `python server.py --index-only`，把更新后的 `assets-index.json` 和素材一起提交。Python 用于本地预览和生成索引。
 3. 在 GitHub 仓库 **Settings → Pages** 中，选择 **Deploy from a branch**，发布分支和 **/ (root)**。提交生效后，通过 **Visit site** 打开页面并检查参考图和背景包。 [GitHub Pages 发布文档](https://docs.github.com/zh/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
 
 项目目录里的参考图和 ZIP 会随页面公开，请只放计划发布的素材。浏览器里导入的角色、参考图和本地背景由 IndexedDB 存储，发布到新网址后会使用该网址自己的工作台。
